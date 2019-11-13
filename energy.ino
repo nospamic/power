@@ -10,8 +10,12 @@ enum mode {ACTIVE, PASSIVE, OPTIONS};
 float voltageDivisor = 22.53;
 int tryCount = 40;
 int middlePower;
+int joysticMiddleX;
+int joysticMiddleY;
 int deviationPower = 10;
 int voltagePort = 0;
+int joyPortX = 2;
+int joyPortY = 1;
 float upperVoltage = 28.2;
 float lowerVoltage = 24.0;
 int activeDevice = DEV_A;
@@ -50,6 +54,9 @@ void setup() {
   delay(600);
   middlePower = analogRead(POWER_A);
 
+  joysticMiddleX = analogRead(joyPortX);
+  joysticMiddleY = analogRead(joyPortY);
+
   lcd.print("Ok");
   lcd.setCursor(0, 1);
   lcd.print("middlePower=");
@@ -85,20 +92,22 @@ bool isButton() {
 }
 
 int getY() {
+  int jDeviation = 100;
   int result;
-  int y = analogRead(1);
-  if (y < 300)result = UP;
-  if (y > 600)result = DOWN;
-  if (y >= 300 && y <= 500)result = MIDDLE;
+  int y = analogRead(joyPortY);
+  if (y < joysticMiddleY - jDeviation) result = UP;
+  if (y > joysticMiddleY + jDeviation) result = DOWN;
+  if (y >= joysticMiddleY - jDeviation && y <= joysticMiddleY + jDeviation)result = MIDDLE;
   return result;
 }
 
 int getX() {
   int result;
+  int jDeviation = 100;
   int x = analogRead(2);
-  if (x < 300)result = RIGHT;
-  if (x > 500)result = LEFT;
-  if (x >= 300 && x <= 500)result = MIDDLE;
+  if (x < joysticMiddleY - jDeviation) result = RIGHT;
+  if (x > joysticMiddleY + jDeviation) result = LEFT;
+  if (x >= joysticMiddleY - jDeviation && x <= joysticMiddleY + jDeviation) result = MIDDLE;
   return result;
 }
 
