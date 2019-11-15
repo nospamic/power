@@ -6,8 +6,9 @@ enum joystic {MIDDLE, UP, DOWN, RIGHT, LEFT};
 enum sensor {POWER_A = 6, POWER_B = 7};
 enum digital {DEV_A = 9, DEV_B = 10};
 enum mode {ACTIVE, PASSIVE, OPTIONS};
+enum buttValue {FREE, PRESS, RELEASE};
 
-float voltageDivisor = 24.80;
+float voltageDivisor = 24.55;
 int tryCount = 40;
 int middlePower;
 int joysticMiddleX;
@@ -23,9 +24,11 @@ int activeDevice = DEV_A;
 int activeSensor = POWER_A;
 int mode = PASSIVE;
 int buttonRepeat = 20;
-const int ARRSIZE = 50;
+int buttonValue = FREE;
+const int ARRSIZE = 250;
 float voltArray[ARRSIZE];
 int voltArrayPosition = 0;
+size_t timer = millis();
 
 void activeMode();
 void passiveMode();
@@ -36,11 +39,13 @@ void voltageTest();
 void showInfo();
 float getVoltage(int port);
 bool isButton();
+bool isButtonRelease();
 int getX();
 int getY();
 bool isPowerOn(int port);
 void tuning(const char* text, float &parametr, float minimum, float maximum, float tStep);
 bool isSave();
+bool timeLeft(int milliseconds);
 void debug();
 
 
@@ -54,7 +59,7 @@ void setup() {
   pinMode(DEV_A, OUTPUT);
   pinMode(DEV_B, OUTPUT);
 
-  for(int i=0; i<ARRSIZE; ++i) voltArray[i] = analogRead(voltagePort)/voltageDivisor;
+  for (int i = 0; i < ARRSIZE; ++i) voltArray[i] = analogRead(voltagePort) / voltageDivisor;
 
   deviceOn(DEV_A, false);
   deviceOn(DEV_B, false);
@@ -72,27 +77,26 @@ void setup() {
 }
 
 void loop() {
-  showInfo();
+  if (timeLeft(1500)) showInfo();
   if (mode != OPTIONS) voltageTest();
   if (mode == PASSIVE) passiveMode();
   if (mode == ACTIVE) activeMode();
   if (mode == OPTIONS) optionsMode();
-
-  for (int i = 0; i < buttonRepeat; ++i) {
-    if (isButton())mode = OPTIONS;
-    delay(20);
-  }
+  if (isButtonRelease()) mode = OPTIONS;
+  delay(20);
 }
 
 float getVoltage(int port) {
   float result;
-  voltArray[voltArrayPosition] = analogRead(port)/ voltageDivisor;
+  voltArray[voltArrayPosition] = analogRead(port) / voltageDivisor;
   voltArrayPosition++;
-  if(voltArrayPosition == ARRSIZE)voltArrayPosition = 0;
-  for(int i=0; i<ARRSIZE; ++i){
+  if (voltArrayPosition == ARRSIZE)voltArrayPosition = 0;
+  for (int i = 0; i < ARRSIZE; ++i) {
     result += voltArray[i];
   }
-  return result/ARRSIZE;
+  result = result / ARRSIZE;
+  result = float(int(result * 10)) / 10;
+  return result;
 }
 
 bool isButton() {
@@ -104,6 +108,19 @@ bool isButton() {
   }
   return result;
 }
+
+
+bool isButtonRelease() {
+  bool result = false;
+  int state = !digitalRead(12);
+  if (buttonValue == FREE && state == HIGH) buttonValue = PRESS;
+  if (buttonValue == PRESS && state == LOW) {
+    buttonValue = FREE;
+    result = true;
+  }
+  return result;
+}
+
 
 int getY() {
   int result;
@@ -124,6 +141,7 @@ int getX() {
 }
 
 bool isPowerOn(int port) {
+  delay(300);
   bool result = false;
   for (int i = 0; i < tryCount; ++i) {
     int value = analogRead(port);
@@ -159,12 +177,12 @@ void activeMode() {
 }
 
 void switching() {
-  
+
   deviceOn(activeDevice, false);
   if (activeDevice == DEV_A) {
     activeDevice = DEV_B;
     activeSensor = POWER_B;
-  }else{
+  } else {
     activeDevice = DEV_A;
     activeSensor = POWER_A;
   }
@@ -182,13 +200,13 @@ void optionsMode() {
   float newVoltageDivisor = voltageDivisor;
 
   tuning("Upper_U", newUpperVoltage, 26.0, 29.0, 0.1);
-  delay(400);
+  //delay(500);
   tuning("Lower_U", newLowerVoltage, 20.0, 26.0, 0.1);
-  delay(400);
+  //delay(500);
   tuning("Divisor", newVoltageDivisor, 15.0, 30.0, 0.05);
   //delay(400);
   //debug();
-  delay(200);
+  //delay(300);
   if (isSave()) {
     upperVoltage = newUpperVoltage;
     lowerVoltage = newLowerVoltage;
@@ -215,11 +233,13 @@ void showInfo() {
   if (mode == PASSIVE)lcd.print("Passive ");
   lcd.setCursor(0, 1);
   lcd.print("Button->options");
-  delay(10);
+  delay(5);
 }
 
 void tuning(const char* text, float &parametr, float minimum, float maximum, float tStep) {
-  while (!isButton()) {
+
+  bool isExit = false;
+  while (!isExit) {
     lcd.clear();
     lcd.print("Options: ");
     lcd.print(text);
@@ -228,7 +248,7 @@ void tuning(const char* text, float &parametr, float minimum, float maximum, flo
     lcd.print(parametr);
     lcd.print(" (+)>");
     delay(200);
-    while (!isButton()) {
+    while (true) {
       if (getX() == RIGHT) {
         parametr += tStep;
         break;
@@ -237,7 +257,11 @@ void tuning(const char* text, float &parametr, float minimum, float maximum, flo
         parametr -= tStep;
         break;
       }
-      delay(50);
+      if (isButtonRelease()){
+        isExit = true;
+        break;
+      }
+    delay(5);
     }
     if (parametr < minimum) parametr += tStep;
     if (parametr > maximum) parametr -= tStep;
@@ -246,7 +270,8 @@ void tuning(const char* text, float &parametr, float minimum, float maximum, flo
 
 bool isSave() {
   bool answer = false;
-  while (!isButton()) {
+  bool isExit = false;
+  while (!isExit) {
     lcd.clear();
     lcd.print("Save?");
     if (!answer) {
@@ -256,33 +281,23 @@ bool isSave() {
       lcd.setCursor(7, 0); lcd.print("< Yes > ");
     }
     delay(400);
-    while (!isButton()) {
+    while (true) {
       if (getX() != MIDDLE || getY() != MIDDLE) {
         answer = !answer;
         break;
       }
-      delay(50);
+      if (isButtonRelease()) {
+        isExit = true;
+        break;
+      }
+      delay(5);
     }
   }
-  delay(200);
   return answer;
 }
 
-void debug(){
-  lcd.clear();
-  deviceOn(DEV_A, true); deviceOn(DEV_B, false);
-  delay(300);
-  if(isPowerOn(POWER_A))lcd.print("POWER_A");
-  deviceOn(DEV_B, true); deviceOn(DEV_A, false);
-  delay(300);
-  if(isPowerOn(POWER_B))lcd.print("POWER_B");
-  
-  while(!isButton()){
-    lcd.setCursor(0,1);  
-    lcd.print("Vp-");
-    lcd.print(analogRead(voltagePort));
-   
-    
-    delay(400);
-  }
+bool timeLeft(int milliseconds) {
+  return millis() > (timer + milliseconds);
 }
+
+void debug() {}
