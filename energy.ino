@@ -1,6 +1,8 @@
 #include <LiquidCrystal_I2C.h>
 #include <Wire.h>
 
+
+
 LiquidCrystal_I2C lcd(0x27, 16, 2);
 enum joystic {MIDDLE, UP, DOWN, RIGHT, LEFT};
 enum sensor {POWER_A = 6, POWER_B = 7};
@@ -23,12 +25,13 @@ float lowerVoltage = 24.0;
 int activeDevice = DEV_A;
 int activeSensor = POWER_A;
 int mode = PASSIVE;
-int buttonRepeat = 20;
 int buttonValue = FREE;
 const int ARRSIZE = 250;
 float voltArray[ARRSIZE];
 int voltArrayPosition = 0;
-size_t timer = millis();
+unsigned long long timer = millis();
+const char * anim = "\xa5"":'";
+int frameNum = 0;
 
 void activeMode();
 void passiveMode();
@@ -38,7 +41,6 @@ void switching();
 void voltageTest();
 void showInfo();
 float getVoltage(int port);
-bool isButton();
 bool isButtonRelease();
 int getX();
 int getY();
@@ -46,10 +48,12 @@ bool isPowerOn(int port);
 void tuning(const char* text, float &parametr, float minimum, float maximum, float tStep);
 bool isSave();
 bool timeLeft(int milliseconds);
-void debug();
+void animate();
+
 
 
 void setup() {
+  //Serial.begin(9600);
   lcd.init();
   lcd.backlight();
   lcd.setCursor(0, 0);
@@ -77,7 +81,12 @@ void setup() {
 }
 
 void loop() {
-  if (timeLeft(1500)) showInfo();
+  if (timeLeft(1000)){ 
+    showInfo();
+    animate();
+  }
+  
+  //Serial.print(a);Serial.print("..\n");
   if (mode != OPTIONS) voltageTest();
   if (mode == PASSIVE) passiveMode();
   if (mode == ACTIVE) activeMode();
@@ -96,16 +105,6 @@ float getVoltage(int port) {
   }
   result = result / ARRSIZE;
   result = float(int(result * 10)) / 10;
-  return result;
-}
-
-bool isButton() {
-  bool result;
-  if (!digitalRead(12) == HIGH) {
-    result = true;
-  } else {
-    result = false;
-  }
   return result;
 }
 
@@ -223,6 +222,7 @@ void deviceOn(int port, bool state) {
 
 void showInfo() {
   float voltage = getVoltage(voltagePort);
+  //Serial.print(voltage);
   //lcd.clear();
   lcd.setCursor(0, 0);
   lcd.print("U=");
@@ -232,7 +232,7 @@ void showInfo() {
   if (mode == ACTIVE && activeDevice == DEV_B) lcd.print("Dev.B  ");
   if (mode == PASSIVE)lcd.print("Passive ");
   lcd.setCursor(0, 1);
-  lcd.print("Button->options");
+  lcd.print("Button ""\x7e"" options");
   delay(5);
 }
 
@@ -244,9 +244,9 @@ void tuning(const char* text, float &parametr, float minimum, float maximum, flo
     lcd.print("Options: ");
     lcd.print(text);
     lcd.setCursor(0, 1);
-    lcd.print("<(-) ");
+    lcd.print("\x7f""(-) ");
     lcd.print(parametr);
-    lcd.print(" (+)>");
+    lcd.print(" (+)""\x7e");
     delay(200);
     while (true) {
       if (getX() == RIGHT) {
@@ -296,8 +296,26 @@ bool isSave() {
   return answer;
 }
 
+
 bool timeLeft(int milliseconds) {
-  return millis() > (timer + milliseconds);
+  bool result = false;
+  if (millis() > (timer + milliseconds)) {
+    result = true;
+    timer = millis();
+  }
+  if (millis() < 5000) timer = millis();
+  return result;
 }
 
+
+
+void animate(){
+  char frame = *(anim + frameNum);
+  //if (frameNum == 3) frame = '\x15';
+  ++frameNum;
+  
+  if (frameNum > 1) frameNum = 0;
+  lcd.setCursor(8,0);
+  lcd.print (frame);
+}
 void debug() {}
