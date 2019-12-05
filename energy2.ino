@@ -6,9 +6,11 @@ LiquidCrystal_I2C lcd(0x27, 16, 2);
 #define JOY_X 2
 #define JOY_Y 1
 #define JOY_BTN 12
+#define VOLT_PORT 3
+
 
 enum sensor {POWER_A = 6, POWER_B = 7};
-enum digital {DEV_A = 9, DEV_B = 10};
+enum digital {DEV_A = 10, DEV_B = 9};//swapped
 enum mode {ACTIVE, PASSIVE, OPTIONS};
 
 
@@ -104,13 +106,12 @@ class Joystic {
 };
 
 
-float voltageDivisor = 24.55;
+float voltageDivisor = 16.37;
 float voltageDeviation = 0;
-int voltagePort = 0;
 float upperVoltage = 28.2;
 float lowerVoltage = 24.0;
 int mode = PASSIVE;
-const int ARRSIZE = 250;
+const int ARRSIZE = 2;
 float voltArray[ARRSIZE];
 int voltArrayPosition = 0;
 unsigned long long timer = millis();
@@ -118,8 +119,8 @@ const char * anim = "\xa5"":'";
 int frameNum = 0;
 Device devA;
 Device devB;
-Device * activeDevice = 0;
-Device * passiveDevice = 0;
+Device * activeDevice = NULL;
+Device * passiveDevice = NULL;
 
 Joystic joy;
 
@@ -137,6 +138,7 @@ void animate();
 
 /////////////////////////////////////////////////////////////////////////////////////////////
 void setup() {
+  analogReference(EXTERNAL);
   //Serial.begin(9600);
   lcd.init();
   lcd.backlight();
@@ -150,7 +152,7 @@ void setup() {
 
   joy = Joystic(JOY_X, JOY_Y, JOY_BTN);
 
-  for (int i = 0; i < ARRSIZE; ++i) voltArray[i] = analogRead(voltagePort) / voltageDivisor;
+  for (int i = 0; i < ARRSIZE; ++i) voltArray[i] = analogRead(VOLT_PORT) / voltageDivisor;
 
   lcd.print("Ok");
   //lcd.setCursor(0, 1); lcd.print("middlePower=");
@@ -158,10 +160,11 @@ void setup() {
 }
 ///////////////////////////////////////////////////////////////////////////////////////////////
 void loop() {
-  if (timeLeft(1000)) {
+  if (timeLeft(500)) {
     showInfo();
     animate();
     if (mode == ACTIVE) activeMode();
+    
   }
   //Serial.print(a); Serial.print("..\n");
   if (mode != OPTIONS) voltageTest();
@@ -188,7 +191,7 @@ float getVoltage(int port) {
 
 
 void voltageTest() {
-  float voltage = getVoltage(voltagePort);
+  float voltage = getVoltage(VOLT_PORT);
   if (voltage >= upperVoltage) {
     activeDevice -> powerOn();
     mode = ACTIVE;
@@ -209,7 +212,7 @@ void activeMode() {
   if (!activeDevice -> isPowerOn()) switching();
 }
 
-void switching() {
+void switching() {               //active mode only
   activeDevice -> powerOff();
   if (activeDevice == &devA) {
     activeDevice = &devB;
@@ -218,6 +221,7 @@ void switching() {
     activeDevice = &devA;
     passiveDevice = &devB;
   }
+  activeDevice -> powerOn();
 }
 
 void passiveMode() {}
@@ -244,8 +248,9 @@ void optionsMode() {
 
 
 void showInfo() {
-  float voltage = getVoltage(voltagePort);
-  //Serial.print(voltage);
+  float voltage = getVoltage(VOLT_PORT);
+  //debug();
+  //Serial.print(voltage);Serial.print("\n");
   //lcd.clear();
   lcd.setCursor(0, 0);
   lcd.print("U=");
@@ -342,4 +347,9 @@ void animate() {
   lcd.setCursor(8, 0);
   lcd.print (frame);
 }
-void debug() {}
+void debug() {
+  for(int i=0; i<=7;++i){
+    Serial.print(i); Serial.print("-");Serial.print(analogRead(i));Serial.print("   ");
+  }
+  Serial.print("\n");
+  }
