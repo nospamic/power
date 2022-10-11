@@ -10,7 +10,7 @@ LiquidCrystal_I2C lcd(0x27, 16, 2);
 #define WATER_TEMP_PORT 6 //on PCB Power_A
 #define WATER_TEMP_BUS 8 //D8
 
-enum digital {DEV_A = 8, DEV_B = 7, DEV_C = 9, CONTACTOR = 3};//on PCB 6,7, (9, 3)joystic(93...)
+enum digital {DEV_A = 6, DEV_B = 7, DEV_C = 9, CONTACTOR = 3};//on PCB 6,7, (9, 3)joystic(93...)
 enum modes {PASSIVE, STAGE_ONE, STAGE_TWO, STAGE_THREE};
 OneWire oneWire(WATER_TEMP_BUS);
 DallasTemperature sensor(&oneWire);
@@ -70,13 +70,20 @@ public:
   void on(){
       delay(200);
       digitalWrite(devicePort, true);
+      isOn = true;
+      delay(200);
   }
   void off(){
     digitalWrite(devicePort, false);
-    delay(5000);
+    isOn = false;
+    delay(10000);
+  }
+  bool isTurnedOn(){
+    return isOn;
   }
 private:
   int devicePort;
+  bool isOn;
 };
 
 const float resist_1 = 32.0f;
@@ -88,11 +95,10 @@ float voltageDivisor = 3.84f;
 float voltageDeviation = 0.0f;
 float lastVoltage;
 float upperVoltage = 230.0f;
-float lowerVoltage = 5.0f;
+float lowerVoltage = 140.0f;
 int currentMode = PASSIVE;
 float dayPower = 0;
-const int ARRSIZE = 2;//capacity
-float voltArray[ARRSIZE];
+
 int voltArrayPosition = 0;
 const int diodePort = 13;
 unsigned long long timer = millis();
@@ -120,44 +126,49 @@ void setup() {
   heater_2 = Heater(DEV_B, resist_2);
   heater_3 = Heater(DEV_C, resist_3);
   contactor = Contactor(CONTACTOR);
-  
-  for (int i = 0; i < ARRSIZE; ++i) voltArray[i] = analogRead(VOLT_PORT) / voltageDivisor;
-  
   lcd.print("Ok");
   delay(1000);
   lcd.clear();
   currentMode = PASSIVE;
-  lastVoltage = getVoltage();
   setOptimalMode();
+  delay(200);
+  lastVoltage = getVoltage();
+ 
 }
 
 
 ///////////////////////////////////////   LOOP   ////////////////////////////////////////////////
 void loop() {
+  if(currentTemp > maxWaterTemp || abs(currentTemp + 127.0) < 0.1){
+    lcd.setCursor(7, 0);
+    lcd.print("OVERHEAT");
+    setOptimalMode();
+  }
+  if(abs(lastVoltage - getVoltage()) > 25.0){
+    lcd.setCursor(7, 0);
+    lcd.print("<>L");
+    lcd.print(lastVoltage);
+    setOptimalMode();
+    delay(200);
+    lastVoltage = getVoltage();
+  }
+  if(currentMode == PASSIVE && getVoltage() > upperVoltage){
+    lcd.setCursor(7, 0);
+    lcd.print("first");
+    setOptimalMode();
+    delay(200);
+    lastVoltage = getVoltage();
+  }
   if (timeLeft(490)) {
     showInfo();
     setCurrentTemp();
   }
-  if(abs(lastVoltage - getVoltage()) > 25.0){
-    setOptimalMode();
-    delay(100);
-    lastVoltage = getVoltage();
-  }
   delay(5);
 }
 
+
 float getVoltage() {
-  float result;
-  voltArray[voltArrayPosition] = analogRead(VOLT_PORT) / voltageDivisor + voltageDeviation;
-  //Serial.print(voltArray[voltArrayPosition]);Serial.print("\n");
-  voltArrayPosition++;
-  if (voltArrayPosition == ARRSIZE)voltArrayPosition = 0;
-  for (int i = 0; i < ARRSIZE; ++i) {
-    result += voltArray[i];
-  }
-  result = result / float(ARRSIZE);
-  result = round(result);
-  return result;
+ return analogRead(VOLT_PORT) / voltageDivisor + voltageDeviation;
 }
 
 
@@ -181,57 +192,60 @@ void setMode(int mode){
   heater_3.turnOff();
   if(mode == PASSIVE){
     currentMode = PASSIVE;
-    delay(300);
   }
   if(mode == STAGE_ONE){
     currentMode = STAGE_ONE;
     heater_1.turnOn();
-    delay(300);
   }
   if(mode == STAGE_TWO){
     currentMode = STAGE_TWO;
     heater_1.turnOn();
     heater_2.turnOn();
-    delay(300);
   }
   if(mode == STAGE_THREE){
     currentMode = STAGE_THREE;
     heater_1.turnOn();
     heater_2.turnOn();
     heater_3.turnOn();
-    delay(300);
   }
+  delay(200);
 }
 
 void setOptimalMode(){
   lcd.setCursor(0, 0);
   lcd.print(" TEST ");
     setMode(PASSIVE);
-    if(getVoltage() < upperVoltage || currentTemp > maxWaterTemp){
-      contactor.off();
+    if(getVoltage() < lowerVoltage || currentTemp > maxWaterTemp){
+      if(contactor.isTurnedOn()){
+        contactor.off();
+      }
       return;
     }
-    float maxPower = 0.0f;
-    setMode(STAGE_ONE);
-    if (getCurrentPower() > maxPower){
-      maxPower = getCurrentPower();
-      contactor.on();
-    }else{
-      setMode(PASSIVE);
-      return;
-    }
-    setMode(STAGE_TWO);
-    if (getCurrentPower() > maxPower){
-      maxPower = getCurrentPower();
-    }else{
+    if(getVoltage() > upperVoltage){
+      float maxPower = 0.0f;
+      if(!contactor.isTurnedOn()){
+        contactor.on();
+      }
       setMode(STAGE_ONE);
-      return;
-    }
-    setMode(STAGE_THREE);
-    if (getCurrentPower() > maxPower){
-      return;
-    }else{
+      if (getCurrentPower() > maxPower){
+        maxPower = getCurrentPower();
+      }else{
+        setMode(PASSIVE);
+        return;
+      }
       setMode(STAGE_TWO);
+      if (getCurrentPower() > maxPower){
+        maxPower = getCurrentPower();
+      }else{
+        setMode(STAGE_ONE);
+        return;
+      }
+      setMode(STAGE_THREE);
+      if (getCurrentPower() > maxPower){
+        return;
+      }else{
+        setMode(STAGE_TWO);
+      }
     }
 }
 
@@ -249,9 +263,11 @@ void showInfo() {
   
   if (currentMode != PASSIVE){
     lcd.setCursor(9, 0);
-    if(currentMode == STAGE_ONE) lcd.print(" (0..) ");
-    if(currentMode == STAGE_TWO) lcd.print(" (00.) ");
-    if(currentMode == STAGE_ONE) lcd.print(" (000) ");
+    lcd.print("L");
+    lcd.print(lastVoltage);
+    //if(currentMode == STAGE_ONE) lcd.print(" (0..) ");
+    //if(currentMode == STAGE_TWO) lcd.print(" (00.) ");
+    //if(currentMode == STAGE_ONE) lcd.print(" (000) ");
     lcd.setCursor(0, 1);
     float currentPower = getCurrentPower(); //watt
     lcd.print("P=");
