@@ -22,8 +22,29 @@ void showInfo();
 float getVoltage();
 float getCurrentPower();
 void setCurrentTemp();
-bool timeLeft(int milliseconds);
+bool timeLeft(long int milliseconds);
+bool timeLeftTest(long int milliseconds);
 void diodeOn(bool);
+void showCurrentMode();
+void showDayPower();
+void showTemp();
+void addDayPower();
+
+const float resist_1 = 32.0f;
+const float resist_2 = 32.0f;
+const float resist_3 = 32.0f;
+const float maxWaterTemp = 55.0f;
+float currentTemp = 0.0f;
+float voltageDivisor = 3.84f;
+float voltageDeviation = 0.0f;
+float currentPower = 0.0f;
+float currentVoltage = 0.0f;
+float lastVoltage;
+float upperVoltage = 232.0f;
+float lowerVoltage = 160.0f;
+int currentMode = PASSIVE;
+float dayPower = 0;
+const int diodePort = 13;
 
 class Heater {
   public:
@@ -39,8 +60,7 @@ class Heater {
     }
 
     float getPower() {
-      float voltage = getVoltage();
-      return voltage * voltage / resistance;
+      return currentVoltage * currentVoltage / resistance;
     }
 
     bool isTurnedOn(){
@@ -71,7 +91,7 @@ public:
       delay(200);
       digitalWrite(devicePort, true);
       isOn = true;
-      delay(200);
+      delay(400);
   }
   void off(){
     digitalWrite(devicePort, false);
@@ -86,29 +106,55 @@ private:
   bool isOn;
 };
 
-const float resist_1 = 32.0f;
-const float resist_2 = 32.0f;
-const float resist_3 = 32.0f;
-const float maxWaterTemp = 55.0f;
-float currentTemp = 0.0f;
-float voltageDivisor = 3.84f;
-float voltageDeviation = 0.0f;
-float lastVoltage;
-float upperVoltage = 230.0f;
-float lowerVoltage = 140.0f;
-int currentMode = PASSIVE;
-float dayPower = 0;
 
-int voltArrayPosition = 0;
-const int diodePort = 13;
-unsigned long long timer = millis();
+class Timer {
+public:
+  Timer(){
+    startTime = millis();
+  }
+  bool timeLeft(long int milliseconds) {
+  bool result = false;
+  if (millis() > (startTime + milliseconds)) {
+    result = true;
+    startTime = millis();
+  }
+  if (millis() < 5000) startTime = millis();
+  return result;
+}
+private:
+  unsigned long long startTime;
+};
+
+
+
+Timer timerInfo;
+Timer timerTest;
 Heater heater_1;
 Heater heater_2;
 Heater heater_3;
 Contactor contactor;
 
+byte customChar0[8] = {
+  0b11111,
+  0b11111,
+  0b11111,
+  0b11111,
+  0b11111,
+  0b11111,
+  0b11111,
+  0b11111
+};
 
-
+byte customChar1[8] = {
+  0b11111,
+  0b10001,
+  0b10001,
+  0b00000,
+  0b00000,
+  0b10001,
+  0b10001,
+  0b11111
+};
 
 
 
@@ -119,6 +165,8 @@ void setup() {
   sensor.begin();
   //Serial.begin(9600);
   lcd.init();
+  lcd.createChar(0, customChar0);
+  lcd.createChar(1, customChar1);
   lcd.backlight();
   lcd.setCursor(0, 0);
   lcd.print("Starting...");
@@ -126,12 +174,8 @@ void setup() {
   heater_2 = Heater(DEV_B, resist_2);
   heater_3 = Heater(DEV_C, resist_3);
   contactor = Contactor(CONTACTOR);
-  lcd.print("Ok");
-  delay(1000);
   lcd.clear();
-  currentMode = PASSIVE;
   setOptimalMode();
-  delay(200);
   lastVoltage = getVoltage();
  
 }
@@ -139,27 +183,22 @@ void setup() {
 
 ///////////////////////////////////////   LOOP   ////////////////////////////////////////////////
 void loop() {
-  if(currentTemp > maxWaterTemp || abs(currentTemp + 127.0) < 0.1){
-    lcd.setCursor(7, 0);
-    lcd.print("OVERHEAT");
+  if(currentTemp > maxWaterTemp || currentTemp < 0){
     setOptimalMode();
+    lastVoltage = getVoltage();
   }
+  if(timerTest.timeLeft(180000)){
+    setOptimalMode();
+    lastVoltage = getVoltage();
+    addDayPower();
+  }
+  
   if(abs(lastVoltage - getVoltage()) > 25.0){
-    lcd.setCursor(7, 0);
-    lcd.print("<>L");
-    lcd.print(lastVoltage);
     setOptimalMode();
-    delay(200);
     lastVoltage = getVoltage();
   }
-  if(currentMode == PASSIVE && getVoltage() > upperVoltage){
-    lcd.setCursor(7, 0);
-    lcd.print("first");
-    setOptimalMode();
-    delay(200);
-    lastVoltage = getVoltage();
-  }
-  if (timeLeft(490)) {
+  
+  if (timerInfo.timeLeft(500)) {
     showInfo();
     setCurrentTemp();
   }
@@ -168,12 +207,15 @@ void loop() {
 
 
 float getVoltage() {
- return analogRead(VOLT_PORT) / voltageDivisor + voltageDeviation;
+  delay(500);
+  currentVoltage = round(analogRead(VOLT_PORT) / voltageDivisor + voltageDeviation);
+  return currentVoltage;
 }
 
 
 float getCurrentPower(){
   float result = 0.0;
+  float voltage = getVoltage();
   if(heater_1.isTurnedOn()){
     result += heater_1.getPower();  
   }
@@ -183,6 +225,7 @@ float getCurrentPower(){
   if(heater_3.isTurnedOn()){
     result += heater_3.getPower();  
   }
+  currentPower = result;
   return result; 
 }
 
@@ -208,34 +251,38 @@ void setMode(int mode){
     heater_2.turnOn();
     heater_3.turnOn();
   }
-  delay(200);
+  showCurrentMode();
 }
 
 void setOptimalMode(){
   lcd.setCursor(0, 0);
   lcd.print(" TEST ");
     setMode(PASSIVE);
-    if(getVoltage() < lowerVoltage || currentTemp > maxWaterTemp){
+    currentVoltage = getVoltage();
+    if(currentVoltage < lowerVoltage || currentTemp > maxWaterTemp){
       if(contactor.isTurnedOn()){
         contactor.off();
       }
       return;
     }
-    if(getVoltage() > upperVoltage){
+    if(currentVoltage > upperVoltage){
       float maxPower = 0.0f;
       if(!contactor.isTurnedOn()){
         contactor.on();
+        dayPower = 0.0;
       }
       setMode(STAGE_ONE);
-      if (getCurrentPower() > maxPower){
-        maxPower = getCurrentPower();
+      currentPower = getCurrentPower();
+      if (currentPower > maxPower){
+        maxPower = currentPower;
       }else{
         setMode(PASSIVE);
         return;
       }
       setMode(STAGE_TWO);
-      if (getCurrentPower() > maxPower){
-        maxPower = getCurrentPower();
+      currentPower = getCurrentPower();
+      if (currentPower > maxPower){
+        maxPower = currentPower;
       }else{
         setMode(STAGE_ONE);
         return;
@@ -254,55 +301,76 @@ void setCurrentTemp(){
   currentTemp = sensor.getTempCByIndex(0);
 }
 
+
+void addDayPower(){
+  dayPower += (currentPower/20); //watt
+}
+
+
 void showInfo() {
-  float voltage = getVoltage();
   lcd.setCursor(0, 0);
   lcd.print("U=");
-  lcd.print(int(voltage));
+  lcd.print(int(currentVoltage));
   lcd.print("v ");
-  
   if (currentMode != PASSIVE){
-    lcd.setCursor(9, 0);
-    lcd.print("L");
-    lcd.print(lastVoltage);
-    //if(currentMode == STAGE_ONE) lcd.print(" (0..) ");
-    //if(currentMode == STAGE_TWO) lcd.print(" (00.) ");
-    //if(currentMode == STAGE_ONE) lcd.print(" (000) ");
+    showCurrentMode();
     lcd.setCursor(0, 1);
-    float currentPower = getCurrentPower(); //watt
     lcd.print("P=");
+    currentPower = currentVoltage * currentVoltage / (resist_1 / float(currentMode)); //heaters have same resistance
     lcd.print((int(currentPower/1000*100))/100.0);
     lcd.print("kW ");
-    lcd.setCursor(9, 1);
-    lcd.print("t=");
-    lcd.print(currentTemp);
-    dayPower += (currentPower/7200); //watt
+    showTemp();
   }
   if (currentMode == PASSIVE){
     lcd.setCursor(9, 0);
     if (currentTemp > maxWaterTemp){
-      //lcd.print(currentTemp);
       lcd.print("OVERHEAT");
     }else{
-      lcd.print(" ------ ");
-      lcd.setCursor(0, 1);
-      lcd.print("Last kW:");
-      lcd.print("(");
-      lcd.print((int(dayPower/1000*100))/100.0);
-      lcd.print(") ");
+      showCurrentMode();
+      showTemp();
+      showDayPower();
     }
   }
-  delay(5);
 }
 
+void showDayPower(){
+  lcd.setCursor(0, 1);
+  lcd.print("kW:");
+  lcd.print((int(dayPower/100.0f))/10.0f);
+  lcd.print("  ");
+}
 
+void showTemp(){
+  lcd.setCursor(9, 1);
+  lcd.print(" t=");
+  lcd.print(round(currentTemp));
+  lcd.print("C ");
+}
 
-bool timeLeft(int milliseconds) {
-  bool result = false;
-  if (millis() > (timer + milliseconds)) {
-    result = true;
-    timer = millis();
-  }
-  if (millis() < 5000) timer = millis();
-  return result;
+void showCurrentMode(){
+  lcd.setCursor(9, 0);
+    if(currentMode == STAGE_ONE) {
+      lcd.print(" -");
+      lcd.write((byte)0);
+      lcd.write((byte)1);
+      lcd.write((byte)1);
+      lcd.print("- ");
+    }
+    if(currentMode == STAGE_TWO) {
+      lcd.print(" -");
+      lcd.write((byte)0);
+      lcd.write((byte)0);
+      lcd.write((byte)1);
+      lcd.print("- ");
+    }
+    if(currentMode == STAGE_THREE) {
+      lcd.print(" -");
+      lcd.write((byte)0);
+      lcd.write((byte)0);
+      lcd.write((byte)0);
+      lcd.print("- ");
+    }
+    if(currentMode == PASSIVE) {
+      lcd.print(" ----- ");
+    }
 }
