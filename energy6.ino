@@ -1,5 +1,7 @@
 
-#include "symbols.h"
+#include "display.h"
+#include "timer.h"
+#include "joystic.h"
 
 
 
@@ -16,9 +18,9 @@ enum mode {ACTIVE, PASSIVE, OPTIONS, REQUIRED};
 
 class Device {
   public:
-    float powerValue = 0.0;
-    bool isRequired = false;
-    bool isTurnedOn = false;
+    float powerValue;
+    bool isRequired;
+    bool isTurnedOn;
     
     void powerOn() {
       digitalWrite(devicePort, true);
@@ -53,6 +55,10 @@ class Device {
     }
     
     Device(int devicePort, int powerPort): devicePort(devicePort), powerPort(powerPort) {
+      minPower = 0.15f;
+      powerValue = 0.0f;
+      isRequired = false;
+      isTurnedOn = false;
       pinMode(devicePort, OUTPUT);
       powerOff();
       delay(300);
@@ -63,65 +69,11 @@ class Device {
 
   private:
     int middlePower;
-    float minPower = 0.15;
+    float minPower;
     int devicePort;
     int powerPort;
 };
 
-class Joystic {
-
-  public:
-    enum joystic {MIDDLE, UP, DOWN, RIGHT, LEFT};
-    
-
-    Joystic() {}
-    Joystic(int joyPortX, int joyPortY, int joyPortButton): joyPortX(joyPortX), joyPortY(joyPortY), joyPortButton(joyPortButton) {
-      pinMode(joyPortButton, INPUT_PULLUP);
-      buttonValue = FREE;
-      joysticMiddleX = analogRead(joyPortX);
-      joysticMiddleY = analogRead(joyPortY);
-    }
-
-    bool isButtonRelease() {
-      bool result = false;
-      int state = !digitalRead(joyPortButton);
-      if (buttonValue == FREE && state == HIGH) buttonValue = PRESS;
-      if (buttonValue == PRESS && state == LOW) {
-        buttonValue = FREE;
-        result = true;
-      }
-      return result;
-    }
-
-
-    int getY() {
-      int result;
-      int y = analogRead(joyPortY);
-      if (y < joysticMiddleY - jDeviation) result = UP;
-      if (y > joysticMiddleY + jDeviation) result = DOWN;
-      if (y >= joysticMiddleY - jDeviation && y <= joysticMiddleY + jDeviation)result = MIDDLE;
-      return result;
-    }
-
-    int getX() {
-      int result;
-      int x = analogRead(joyPortX);
-      if (x < joysticMiddleY - jDeviation) result = RIGHT;
-      if (x > joysticMiddleY + jDeviation) result = LEFT;
-      if (x >= joysticMiddleY - jDeviation && x <= joysticMiddleY + jDeviation) result = MIDDLE;
-      return result;
-    }
-
-  private:
-    enum buttValue {FREE, PRESS, RELEASE};
-    int joysticMiddleX;
-    int joysticMiddleY;
-    int jDeviation = 100;
-    int joyPortX;
-    int joyPortY;
-    int joyPortButton;
-    int buttonValue;
-};
 
 
 float voltageDivisor = 15.56;
@@ -129,14 +81,14 @@ float voltageDeviation = 0;
 float upperVoltage = 56.4;
 float lowerVoltage = 48.0;
 int mode = PASSIVE;
-unsigned long long timer = millis();
 int frameNum = 0;
 int requiredTestCounter = 0;
 Device devA;
 Device devB;
 Device * activeDevice = NULL;
 Device * passiveDevice = NULL;
-
+Timer timerInfo;
+Timer timerAnimate;
 Joystic joy;
 
 void activeMode();
@@ -152,7 +104,6 @@ float getVoltage(int port);
 void tuning(const char* text, float &parametr, float minimum, float maximum, float tStep);
 Device* selectDevice(const char*text);
 bool isSave();
-bool timeLeft(int milliseconds);
 void animate();
 
 /////////////////////////////////////////  SETUP  ////////////////////////////////////////////////////
@@ -160,13 +111,9 @@ void setup() {
   analogReference(EXTERNAL);
   //Serial.begin(9600);
   lcd.init();
-  
   lcd.backlight();
   lcd.setCursor(0, 0);
-  
- 
   lcd.print("Starting...");
-  
   devA = Device(DEV_A, POWER_A);
   devB = Device(DEV_B, POWER_B);
   activeDevice = &devA;
@@ -179,13 +126,13 @@ void setup() {
   delay(1000);
   batteryDetect();
   delay(1500);
+  lcd.clear();
 }
 
 //////////////////////////////////////////  LOOP  //////////////////////////////////////////////
 void loop() {
-  if (timeLeft(500)) {
+  if (timerInfo.timeLeft(1000)) {
     showInfo();
-    animate();
     if (mode == ACTIVE) activeMode();
     if (mode == PASSIVE) passiveMode();
   }
@@ -193,13 +140,16 @@ void loop() {
   if (mode != OPTIONS) voltageTest();
   if (mode == OPTIONS) optionsMode();
   if (joy.isButtonRelease()) mode = OPTIONS;
+  if (timerInfo.timeLeft(500)) {
+    animate();
+  }
   delay(5);
 }
 
 
 float getVoltage(int port) {
   float result = analogRead(port) / voltageDivisor + voltageDeviation;
-  return float(round(result * 10.0)) / 10.0;
+  return float(round(result * 10.0)) / 10.0f;
 }
 
 
@@ -322,8 +272,10 @@ void showInfo() {
   //lcd.clear();
   lcd.setCursor(0, 0);
   lcd.print("U=");
-  lcd.print(voltage);
-  lcd.print("v ");
+  lcd.print(int(voltage));
+  lcd.print(".");
+  lcd.print(int((voltage - int(voltage))*10));
+  lcd.print(" ");
   lcd.setCursor(9, 0);
   if (mode == ACTIVE && activeDevice == &devA) lcd.print(" A");
   if (mode == ACTIVE && activeDevice == &devB) lcd.print(" B");
@@ -336,7 +288,7 @@ void showInfo() {
   if (mode == PASSIVE)lcd.print("Passive ");
   if (mode == REQUIRED)lcd.print("Require ");
   lcd.setCursor(0, 1);
-  lcd.print("Button ""\x7e"" options");
+  lcd.print("Press to options");//("Button ""\x7e"" options");
   delay(5);
 }
 
@@ -440,24 +392,12 @@ Device* selectDevice(const char* text) {
 }
 
 
-bool timeLeft(int milliseconds) {
-  bool result = false;
-  if (millis() > (timer + milliseconds)) {
-    result = true;
-    timer = millis();
-  }
-  if (millis() < 5000) timer = millis();
-  return result;
-}
-
-
-
 void animate() {
   ++frameNum;
   if (frameNum >= symbolCount) {
     frameNum = 0;
   }
-  lcd.setCursor(8, 0);
+  lcd.setCursor(7, 0);
   lcd.write((byte)frameNum);
 }
 
