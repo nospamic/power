@@ -81,7 +81,6 @@ float voltageDeviation = 0;
 float upperVoltage = 56.4;
 float lowerVoltage = 48.0;
 int mode = PASSIVE;
-int frameNum = 0;
 int requiredTestCounter = 0;
 Device devA;
 Device devB;
@@ -90,6 +89,7 @@ Device * passiveDevice = NULL;
 Timer timerInfo;
 Timer timerAnimate;
 Joystic joy;
+Icons icons;
 
 void activeMode();
 void passiveMode();
@@ -104,14 +104,13 @@ float getVoltage(int port);
 void tuning(const char* text, float &parametr, float minimum, float maximum, float tStep);
 Device* selectDevice(const char*text);
 bool isSave();
-void animate();
 
 /////////////////////////////////////////  SETUP  ////////////////////////////////////////////////////
 void setup() {
   analogReference(EXTERNAL);
   //Serial.begin(9600);
-  lcd.init();
-  lcd.backlight();
+  display::prepare();
+  icons.prepare();
   lcd.setCursor(0, 0);
   lcd.print("Starting...");
   devA = Device(DEV_A, POWER_A);
@@ -120,9 +119,6 @@ void setup() {
   passiveDevice = &devB;
   joy = Joystic(JOY_X, JOY_Y, JOY_BTN);
   lcd.print("Ok");
-  for (int i = 0; i < symbolCount; ++i){
-    lcd.createChar(i, customChar[i]);
-  }
   delay(1000);
   batteryDetect();
   delay(1500);
@@ -140,8 +136,8 @@ void loop() {
   if (mode != OPTIONS) voltageTest();
   if (mode == OPTIONS) optionsMode();
   if (joy.isButtonRelease()) mode = OPTIONS;
-  if (timerInfo.timeLeft(500)) {
-    animate();
+  if (timerAnimate.timeLeft(500)) {
+    icons.animate(7, 0);
   }
   delay(5);
 }
@@ -259,9 +255,9 @@ void optionsMode() {
     devA.isRequired = false;
     devB.isRequired = false;
     if (requiredDevice != NULL)requiredDevice->isRequired = true;
-    
   }
   mode = PASSIVE;
+  lcd.clear();
 }
 
 
@@ -295,14 +291,16 @@ void showInfo() {
 void tuning(const char* text, float &parametr, float minimum, float maximum, float tStep) {
 
   bool isExit = false;
+  lcd.clear();
+  lcd.print("Options: ");
+  lcd.print(text);
+  icons.leftArrow(2, 1);
+  icons.rightArrow(13, 1);
   while (!isExit) {
-    lcd.clear();
-    lcd.print("Options: ");
-    lcd.print(text);
-    lcd.setCursor(0, 1);
-    lcd.print("\x7f""(-) ");
+    lcd.setCursor(5, 1);
+    lcd.print(" ");
     lcd.print(parametr);
-    lcd.print(" (+)""\x7e");
+    lcd.print(" ");
     delay(200);
     while (true) {
       if (joy.getX() == Joystic::RIGHT) {
@@ -391,15 +389,6 @@ Device* selectDevice(const char* text) {
   return result;
 }
 
-
-void animate() {
-  ++frameNum;
-  if (frameNum >= symbolCount) {
-    frameNum = 0;
-  }
-  lcd.setCursor(7, 0);
-  lcd.write((byte)frameNum);
-}
 
 
 void debug() {
