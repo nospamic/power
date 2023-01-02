@@ -294,21 +294,26 @@ void tuning(const char* text, float &parametr, float minimum, float maximum, flo
   lcd.clear();
   lcd.print("Options: ");
   lcd.print(text);
-  icons.leftArrow(2, 1);
-  icons.rightArrow(13, 1);
   while (!isExit) {
     lcd.setCursor(5, 1);
     lcd.print(" ");
     lcd.print(parametr);
     lcd.print(" ");
     delay(200);
+    lcd.setCursor(1, 1);
+    lcd.print(" ");
+    icons.leftArrow(2, 1);
+    icons.rightArrow(13, 1);
+    lcd.print(" ");
     while (true) {
       if (joy.getX() == Joystic::RIGHT) {
         parametr += tStep;
+        icons.rightArrow(14, 1);
         break;
       }
       if (joy.getX() == Joystic::LEFT) {
         parametr -= tStep;
+        icons.leftArrow(1, 1);
         break;
       }
       if (joy.isButtonRelease()) {
