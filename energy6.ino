@@ -1,15 +1,13 @@
 
+#define SOUND
+
 #include "display.h"
 #include "timer.h"
 #include "joystic.h"
 
-
-
-#define JOY_X 2
-#define JOY_Y 1
-#define JOY_BTN 9 //on PCB 9
 #define VOLT_PORT 0 //on PCB 0
-
+#define SOUND_PORT 10 //on PCB D12
+#define DIODE 13
 
 enum sensor {POWER_A = 6, POWER_B = 7};
 enum digital {DEV_A = 6, DEV_B = 7};//on PCB 6,7
@@ -75,11 +73,12 @@ class Device {
 };
 
 
-
-float voltageDivisor = 15.56;
+bool isDiodeOn;
+float voltageDivisor = 15.56;// on all boards 15.56;
 float voltageDeviation = 0;
 float upperVoltage = 56.4;
 float lowerVoltage = 48.0;
+float warningVoltage;
 int mode = PASSIVE;
 int requiredTestCounter = 0;
 Device devA;
@@ -100,13 +99,21 @@ void requiredTest();
 void setRequiredActive();
 void batteryDetect();
 void showInfo();
-float getVoltage(int port);
+float getVoltage();
 void tuning(const char* text, float &parametr, float minimum, float maximum, float tStep);
 Device* selectDevice(const char*text);
 bool isSave();
+void beep(int milliseconds);
 
 /////////////////////////////////////////  SETUP  ////////////////////////////////////////////////////
 void setup() {
+
+  
+  pinMode(SOUND_PORT, OUTPUT);
+  pinMode(DIODE, true);
+  beep(100);
+  delay(500);
+  beep(100);
   analogReference(EXTERNAL);
   //Serial.begin(9600);
   display::prepare();
@@ -118,9 +125,11 @@ void setup() {
   activeDevice = &devA;
   passiveDevice = &devB;
   joy = Joystic(JOY_X, JOY_Y, JOY_BTN);
+  //lcd.print(joy.getMiddleX());
   lcd.print("Ok");
   delay(1000);
   batteryDetect();
+  warningVoltage = lowerVoltage - lowerVoltage / 10.0f;
   delay(1500);
   lcd.clear();
 }
@@ -131,6 +140,9 @@ void loop() {
     showInfo();
     if (mode == ACTIVE) activeMode();
     if (mode == PASSIVE) passiveMode();
+    if (getVoltage() <= warningVoltage) beep(200);
+    digitalWrite(DIODE, isDiodeOn);
+    isDiodeOn = !isDiodeOn;
   }
   //Serial.print(a); Serial.print("..\n");
   if (mode != OPTIONS) voltageTest();
@@ -143,14 +155,14 @@ void loop() {
 }
 
 
-float getVoltage(int port) {
-  float result = analogRead(port) / voltageDivisor + voltageDeviation;
+float getVoltage() {
+  float result = analogRead(VOLT_PORT) / voltageDivisor + voltageDeviation;
   return float(round(result * 10.0)) / 10.0f;
 }
 
 
 void batteryDetect(){
-  float voltage = getVoltage(VOLT_PORT);
+  float voltage = getVoltage();
   lcd.clear();
   if (voltage <= 15.0 && voltage >= 2.0){
     upperVoltage = 14.1;
@@ -177,7 +189,7 @@ void batteryDetect(){
 
 
 void voltageTest() {
-  float voltage = getVoltage(VOLT_PORT);
+  float voltage = getVoltage();
   if (voltage >= upperVoltage) {
     passiveDevice -> powerOff();
     activeDevice -> powerOn();
@@ -238,12 +250,15 @@ void optionsMode() {
   activeDevice -> powerOff();
   float newUpperVoltage = upperVoltage;
   float newLowerVoltage = lowerVoltage;
+  float newWarningVoltage = warningVoltage;
   float newvoltageDeviation = voltageDeviation;
 
   tuning("Upper_U", newUpperVoltage, upperVoltage - 10, upperVoltage + 10, 0.1);
 
   tuning("Lower_U", newLowerVoltage, lowerVoltage - 10, lowerVoltage + 10, 0.1);
-
+#ifdef SOUND
+  tuning("Warning_U", newWarningVoltage, warningVoltage - 10, warningVoltage + 10, 0.1);
+#endif
   tuning("Correct", newvoltageDeviation, -5.0, 5.0, 0.05);
 
   Device* requiredDevice = selectDevice("Required:");
@@ -251,6 +266,7 @@ void optionsMode() {
   if (isSave()) {
     upperVoltage = newUpperVoltage;
     lowerVoltage = newLowerVoltage;
+    warningVoltage = newWarningVoltage;
     voltageDeviation = newvoltageDeviation;
     devA.isRequired = false;
     devB.isRequired = false;
@@ -262,7 +278,7 @@ void optionsMode() {
 
 
 void showInfo() {
-  float voltage = getVoltage(VOLT_PORT);
+  float voltage = getVoltage();
   //debug();
   //Serial.print(voltage);Serial.print("\n");
   //lcd.clear();
@@ -299,12 +315,13 @@ void tuning(const char* text, float &parametr, float minimum, float maximum, flo
     lcd.print(" ");
     lcd.print(parametr);
     lcd.print(" ");
-    delay(200);
+    delay(300);
     lcd.setCursor(1, 1);
     lcd.print(" ");
     icons.leftArrow(2, 1);
     icons.rightArrow(13, 1);
     lcd.print(" ");
+    beep(30);
     while (true) {
       if (joy.getX() == Joystic::RIGHT) {
         parametr += tStep;
@@ -340,8 +357,9 @@ bool isSave() {
       lcd.setCursor(7, 0); lcd.print("< Yes > ");
     }
     delay(400);
+    beep(30);
     while (true) {
-      if (joy.getX() != Joystic::MIDDLE || joy.getY() != Joystic::MIDDLE) {
+      if (joy.getX() == Joystic::RIGHT || joy.getX() == Joystic::LEFT) {
         answer = !answer;
         break;
       }
@@ -375,8 +393,9 @@ Device* selectDevice(const char* text) {
       lcd.setCursor(0, 1); lcd.print("< Dev. B > ");
     }
     delay(400);
+    beep(30);
     while (true) {
-      if (joy.getX() != Joystic::MIDDLE || joy.getY() != Joystic::MIDDLE) {
+      if (joy.getX() == Joystic::RIGHT || joy.getX() == Joystic::LEFT) {
         ++answer;
         break;
       }
@@ -395,7 +414,13 @@ Device* selectDevice(const char* text) {
 }
 
 
-
+void beep(int milliseconds){
+  #ifdef SOUND
+  digitalWrite(SOUND_PORT, true);
+  delay(milliseconds);
+  digitalWrite(SOUND_PORT, false);
+  #endif
+}
 void debug() {
   for(int i=0; i<=7;++i){
     Serial.print(i); Serial.print("-");Serial.print(analogRead(i));Serial.print("   ");

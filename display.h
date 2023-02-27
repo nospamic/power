@@ -86,6 +86,7 @@ byte customChar[SYMBOL_COUNT][8] = {
 
 class Icons{
 public:
+  enum Arrows{RIGHT_ARROW_1 = 0, RIGHT_ARROW_2 = 1, LEFT_ARROW_1 = 2, LEFT_ARROW_2 = 3};
   Icons(){
     frameCount = 4;
     currentFrame = 0;
@@ -108,14 +109,14 @@ public:
 
   void rightArrow(int x, int y){
     lcd.setCursor(x, y);
-    lcd.write((byte)frameCount);
-    lcd.write((byte)(frameCount + 1));
+    lcd.write((byte)frameCount + RIGHT_ARROW_1);
+    lcd.write((byte)(frameCount + RIGHT_ARROW_2));
   }
   
   void leftArrow(int x, int y){
     lcd.setCursor(x, y);
-    lcd.write((byte)frameCount + 2);
-    lcd.write((byte)(frameCount + 3));
+    lcd.write((byte)frameCount + LEFT_ARROW_1);
+    lcd.write((byte)(frameCount + LEFT_ARROW_2));
   }
   
 private:
